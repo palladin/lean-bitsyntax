@@ -1,0 +1,23 @@
+name: Lean Action CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+      - name: Run smoke checks
+        run: |
+          lake env lean Examples/Reverse32Bit.lean
+          lake env lean Examples/IPv4Checksum.lean
+          lake env lean Examples/IPv4PacketParsing.lean
+          lake env lean Examples/IPv6PacketParsing.lean
+          lake env lean LeanBitsyntax/Examples.lean
+          lake env lean Test/Parser.lean
+          lake env lean Test/Match.lean

@@ -50,12 +50,16 @@ def ipv6PacketBadLength : BitVec 352 :=
   <<6:4, 0xAB:8, 0x54321:20, 5:16, 17, 64,
     (ipv6SourceAddress), (ipv6DestinationAddress), (ipv6Payload)>>
 
+def ipv6HeaderOnly : BitVec 320 :=
+  <<6:4, 0xAB:8, 0x54321:20, 4:16, 17, 64,
+    (ipv6SourceAddress), (ipv6DestinationAddress)>>
+
 def parseIPv6Header {bits : Nat} (packet : BitVec bits) : Option IPv6Header :=
   bitmatch packet with
   | <<6:4, trafficClass : 8, flowLabel : 20, payloadLength : 16,
       nextHeader : 8, hopLimit : 8,
       source : 128, destination : 128,
-      _ : (8 * payloadLength.toNat)>> =>
+      _ : (bits - 320)>> =>
       some {
         trafficClass := trafficClass.toNat
         flowLabel := flowLabel.toNat
@@ -104,6 +108,9 @@ example : parsedIPv6Header = some {
     source := ipv6SourceAddress
     destination := ipv6DestinationAddress
   } := by
+  native_decide
+
+example : parseIPv6Header ipv6HeaderOnly = parsedIPv6Header := by
   native_decide
 
 example : parsedIPv6Packet = some {

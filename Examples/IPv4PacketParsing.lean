@@ -71,6 +71,10 @@ def ipv4PacketBadLength : BitVec 192 :=
   <<4:4, 5:4, 0:6, 0:2, 28:16, 0x1234:16, 2:3, 0:13, 64, 17, 0:16,
     (ipv4SourceAddress), (ipv4DestinationAddress), (ipv4Options), (ipv4Payload)>>
 
+def ipv4HeaderOnly : BitVec 160 :=
+  <<4:4, 5:4, 0:6, 0:2, 24:16, 0x1234:16, 2:3, 0:13, 64, 17, 0:16,
+    (ipv4SourceAddress), (ipv4DestinationAddress), (ipv4Options)>>
+
 def parseIPv4Header {bits : Nat} (packet : BitVec bits) : Option IPv4Header :=
   bitmatch packet with
   | <<4:4, ihlWords : 4, dscp : 6, ecn : 2, totalLength : 16,
@@ -78,7 +82,7 @@ def parseIPv4Header {bits : Nat} (packet : BitVec bits) : Option IPv4Header :=
       ttl : 8, protocol : 8, headerChecksum : 16,
       source : 32, destination : 32,
       _ : (32 * ihlWords.toNat - 160),
-      _ : (8 * totalLength.toNat - 32 * ihlWords.toNat)>> =>
+      _ : (bits - 32 * ihlWords.toNat)>> =>
       let header : IPv4Header := {
         ihlWords := ihlWords.toNat
         dscp := dscp.toNat
@@ -157,6 +161,9 @@ example : parsedIPv4Header = some {
     source := ipv4SourceAddress
     destination := ipv4DestinationAddress
   } := by
+  native_decide
+
+example : parseIPv4Header ipv4HeaderOnly = parsedIPv4Header := by
   native_decide
 
 example : parsedIPv4Packet = some {

@@ -17,6 +17,9 @@ def markedPacket : BitVec 32 :=
 def littleWord : BitVec 16 :=
   <<0x1234:16 / little>>
 
+def signedBigWord : BitVec 16 :=
+  <<(-2) : 16 / signed>>
+
 def signedNibble : BitVec 8 :=
   <<(0xF#4) : 8 / signed>>
 
@@ -73,9 +76,29 @@ def littleLiteralPatternWins : Nat :=
   | <<0x1234 : 16 / little>> => 1
   | _ => 0
 
+def explicitBigLiteralPatternWins : Nat :=
+  bitmatch packet with
+  | <<1 : 8 / big, 17 : 8 / big, payload : 16 / big>> => payload.toNat
+  | _ => 0
+
+def explicitBigTermPatternWins : Nat :=
+  bitmatch packet with
+  | <<(1) : 8 / big, kind : 8 / big, (0x002A#16) : 16 / big>> => kind.toNat
+  | _ => 0
+
 def signedPatternWins : Nat :=
   bitmatch signedNibble with
   | <<(0xF#4) : 8 / signed>> => 1
+  | _ => 0
+
+def explicitSignedBigPatternWins : Int :=
+  bitmatch signedBigWord with
+  | <<word : 16 / signed-big>> => word.toInt
+  | _ => 0
+
+def explicitSignedBigTermPatternWins : Nat :=
+  bitmatch signedBigWord with
+  | <<(-2) : 16 / signed-big>> => 1
   | _ => 0
 
 def signedLittlePatternWins : Nat :=
@@ -131,9 +154,24 @@ def dependentWidthTermWins : Nat :=
   | <<len : 8, (expectedLengthPrefixedPayload) : (8 * len.toNat)>> => len.toNat
   | _ => 0
 
+def dependentWidthBigLiteralWins : Nat :=
+  bitmatch lengthPrefixedPacket with
+  | <<len : 8, 0xAABBCC : (8 * len.toNat) / big>> => len.toNat
+  | _ => 0
+
+def dependentWidthBigTermWins : Nat :=
+  bitmatch lengthPrefixedPacket with
+  | <<len : 8, (expectedLengthPrefixedPayload) : (8 * len.toNat) / big>> => len.toNat
+  | _ => 0
+
 def dependentWidthSignedTermWins : Nat :=
   bitmatch signedLengthPrefixedPacket with
   | <<len : 8, (-2) : (8 * len.toNat) / signed>> => len.toNat
+  | _ => 0
+
+def dependentWidthSignedBigTermWins : Nat :=
+  bitmatch signedLengthPrefixedPacket with
+  | <<len : 8, (-2) : (8 * len.toNat) / signed-big>> => len.toNat
   | _ => 0
 
 def dependentByteWidthLittleLiteralWins : Nat :=
@@ -182,7 +220,19 @@ example : termPatternWins = 1 := by
 example : littleLiteralPatternWins = 1 := by
   native_decide
 
+example : explicitBigLiteralPatternWins = 42 := by
+  native_decide
+
+example : explicitBigTermPatternWins = 17 := by
+  native_decide
+
 example : signedPatternWins = 1 := by
+  native_decide
+
+example : explicitSignedBigPatternWins = -2 := by
+  native_decide
+
+example : explicitSignedBigTermPatternWins = 1 := by
   native_decide
 
 example : signedLittlePatternWins = 1 := by
@@ -218,7 +268,16 @@ example : dependentWidthLiteralMismatchWins = 0 := by
 example : dependentWidthTermWins = 3 := by
   native_decide
 
+example : dependentWidthBigLiteralWins = 3 := by
+  native_decide
+
+example : dependentWidthBigTermWins = 3 := by
+  native_decide
+
 example : dependentWidthSignedTermWins = 2 := by
+  native_decide
+
+example : dependentWidthSignedBigTermWins = 2 := by
   native_decide
 
 example : dependentByteWidthLittleLiteralWins = 3 := by

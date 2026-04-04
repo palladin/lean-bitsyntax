@@ -1,6 +1,6 @@
 # LeanBitsyntax
 
-LeanBitsyntax is a Lean 4 experiment inspired by Erlang/Elixir bit syntax. It borrows the `<<...>>` construction surface and selected semantic ideas, but re-expresses them in a typed, proof-oriented Lean setting. The current implementation keeps the exact `<<...>>` construction surface, but it does not introduce a separate dynamic bitstring runtime as the main semantic model. Instead, it treats `BitVec n` as the default representation whenever widths are known.
+LeanBitsyntax is a Lean 4 experiment inspired by Erlang bit syntax. It borrows the `<<...>>` construction surface and selected semantic ideas, but re-expresses them in a typed, proof-oriented Lean setting. The current implementation keeps the exact `<<...>>` construction surface, but it does not introduce a separate dynamic bitstring runtime as the main semantic model. Instead, it treats `BitVec n` as the default representation whenever widths are known.
 
 ## Design
 
@@ -164,7 +164,7 @@ def signedPayloadMatches : Nat :=
 
 ## Current Limits
 
-- This is not full Erlang/Elixir bitsyntax parity.
+- This is not full Erlang bitsyntax parity.
 - The construction DSL is still a curated subset, not a general segment grammar.
 - The matcher is separate from Lean's native `match`; there is no pattern integration with ordinary inductive matches.
 - Captures currently elaborate to `BitVec` values, not directly to `Nat` or `Int`.

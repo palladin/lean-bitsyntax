@@ -5,10 +5,9 @@ LeanBitsyntax is a Lean 4 experiment inspired by Erlang bit syntax. It borrows t
 ## Design
 
 - BitVec-first core: fixed-width values are represented directly as `BitVec n`.
-- Dynamic boundaries only where needed: an internal width-carrying representation is used when a width is discovered while decoding.
 - Construction lowers to regular helpers: `<<...>>` expands to functions in `LeanBitsyntax.Build`, rather than generating ad hoc bit-twiddling code everywhere.
-- Matching is a dedicated DSL: `bitmatch ... with` is implemented separately from Lean's native `match`, which keeps the decoding semantics explicit and easier to evolve.
-- Left-to-right semantics: matcher branches consume segments in order, fail on the first mismatch, and then either use an explicit fallback or return the original scrutinee unchanged.
+- Matching is a dedicated DSL: `bitmatch ... with` is implemented separately from Lean's native `match`, with typed `BitVec` remainder splitting rather than a dynamic intermediate bitstring wrapper.
+- Left-to-right semantics: matcher branches consume segments in order, fail on the first mismatch, and then either use an explicit fallback or, for the restricted total-rewrite form, omit the fallback entirely.
 - Explicit byte alignment for dynamic little-endian widths: the matcher uses `bytes(expr)` when a dependent width must be interpreted as a byte count.
 
 ## Public Modules
@@ -85,7 +84,7 @@ def signed : BitVec 16 := <<(-2) : 16 / signed-little>>
 
 The current `bitmatch` subset supports:
 
-- one or more pattern branches with an optional explicit final fallback
+- one or more pattern branches with an explicit final fallback for ordinary partial matches
 - literal segments such as `1`, `42:16`, or `0x1234 : 16 / little`
 - comparison terms such as `(marker) : 8` or `(-2) : 16 / signed-little`
 - capture segments such as `kind : 8`, `word : 16 / little`, or `payload : (8 * len.toNat)`
@@ -94,8 +93,9 @@ The current `bitmatch` subset supports:
 - byte-aligned dependent little-endian and signed-little forms through `bytes(expr)`
 - full-input matching only: leftover bits cause the branch to fail and fall through
 
-If the explicit fallback is omitted, `bitmatch` falls back to the original
-scrutinee unchanged. That form is mainly useful for bit-preserving rewrites where
+If the explicit fallback is omitted, `bitmatch` currently accepts only a single
+structurally total capture/ignore rewrite branch. That form is meant for direct
+bit-preserving rewrites where the pattern fully determines the input shape and
 the result type matches the scrutinee type.
 
 Current capture semantics:

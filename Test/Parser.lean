@@ -29,11 +29,23 @@ def identLittle : BitVec 16 :=
 def explicitBigIdent : BitVec 16 :=
   <<sourceWord : 16 / big>>
 
+def exactWidthBitVecIdent (word : BitVec 16) : BitVec 16 :=
+  <<word : 16>>
+
+def exactWidthBitVecBigIdent (word : BitVec 16) : BitVec 16 :=
+  <<word : 16 / big>>
+
 def widenedBitVec : BitVec 16 :=
   <<(0xAB#8) : 16>>
 
 def explicitBigTerm : BitVec 16 :=
   <<(0xAB#8) : 16 / big>>
+
+def exactWidthBitVecTerm (word : BitVec 16) : BitVec 16 :=
+  <<(word) : 16>>
+
+def exactWidthBitVecBigTerm (word : BitVec 16) : BitVec 16 :=
+  <<(word) : 16 / big>>
 
 def signedInt : BitVec 8 :=
   <<signedValue : 8 / signed>>
@@ -68,11 +80,23 @@ example : identLittle = (0x3412#16) := by
 example : explicitBigIdent = (0x1234#16) := by
   native_decide
 
+example (word : BitVec 16) : exactWidthBitVecIdent word = word := by
+  rfl
+
+example (word : BitVec 16) : exactWidthBitVecBigIdent word = word := by
+  rfl
+
 example : widenedBitVec = (0x00AB#16) := by
   native_decide
 
 example : explicitBigTerm = (0x00AB#16) := by
   native_decide
+
+example (word : BitVec 16) : exactWidthBitVecTerm word = word := by
+  rfl
+
+example (word : BitVec 16) : exactWidthBitVecBigTerm word = word := by
+  rfl
 
 example : signedInt = (0xFF#8) := by
   decide

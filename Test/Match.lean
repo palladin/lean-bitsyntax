@@ -110,9 +110,22 @@ def omittedFallbackBranchWins : BitVec 16 :=
   bitmatch littleWord with
   | <<word : 16>> => word
 
-def omittedFallbackReturnsInput : BitVec 16 :=
+def omittedFallbackLittleCaptureWins : BitVec 16 :=
+  bitmatch littleWord with
+  | <<word : 16 / little>> => word
+
+def omittedFallbackSignedBigCaptureWins : Int :=
+  bitmatch signedBigWord with
+  | <<word : 16 / signed-big>> => word.toInt
+
+def omittedFallbackSignedLittleCaptureWins : Int :=
+  bitmatch signedLittleWord with
+  | <<word : 16 / signed-little>> => word.toInt
+
+def explicitFallbackReturnsInput : BitVec 16 :=
   bitmatch littleWord with
   | <<0xFFFF : 16>> => (0x0000#16)
+  | _ => littleWord
 
 def littleCaptureWins : Nat :=
   bitmatch littleWord with
@@ -241,7 +254,16 @@ example : signedLittlePatternWins = 1 := by
 example : omittedFallbackBranchWins = littleWord := by
   native_decide
 
-example : omittedFallbackReturnsInput = littleWord := by
+example : omittedFallbackLittleCaptureWins = (0x1234#16) := by
+  native_decide
+
+example : omittedFallbackSignedBigCaptureWins = -2 := by
+  native_decide
+
+example : omittedFallbackSignedLittleCaptureWins = -2 := by
+  native_decide
+
+example : explicitFallbackReturnsInput = littleWord := by
   native_decide
 
 example : littleCaptureWins = 0x1234 := by

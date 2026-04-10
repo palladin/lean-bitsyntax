@@ -1,4 +1,3 @@
-import LeanBitsyntax.Internal
 import LeanBitsyntax.Core
 
 namespace LeanBitsyntax.Build
@@ -23,10 +22,6 @@ instance : SegmentValue Int where
 instance {n : Nat} : SegmentValue (BitVec n) where
   toUnsignedBitVec width value := BitVec.zeroExtend width value
   toSignedBitVec width value := BitVec.signExtend width value
-
-instance : SegmentValue LeanBitsyntax.Internal.SizedBits where
-  toUnsignedBitVec width value := BitVec.zeroExtend width value.bits
-  toSignedBitVec width value := BitVec.signExtend width value.bits
 
 def empty : BitVec 0 :=
   BitVec.nil

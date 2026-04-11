@@ -100,65 +100,65 @@ def capturedSignedLittleWord : Int :=
   | <<word : 16 / signed-little>> => word.toInt
   | _ => 0
 
-def dependentWidthPayload : Nat :=
+def staticallySizedPayload : Nat :=
   bitmatch lengthPrefixedPacket with
-  | <<len : 8, payload : (8 * len.toNat)>> => payload.toNat
+  | <<len : 8, payload : 24>> =>
+      if len.toNat = 3 then payload.toNat else 0
   | _ => 0
 
-def dependentWidthIgnored : Nat :=
+def staticallySizedIgnored : Nat :=
   bitmatch lengthPrefixedPacket with
-  | <<len : 8, _ : (8 * len.toNat)>> => len.toNat
+  | <<len : 8, _ : 24>> =>
+      if len.toNat = 3 then len.toNat else 0
   | _ => 0
 
-def dependentWidthFallback : Nat :=
+def staticallySizedLiteralMatched : Nat :=
   bitmatch lengthPrefixedPacket with
-  | <<len : 8, _ : (8 * (len.toNat + 1))>> => 1
+  | <<len : 8, 0xAABBCC : 24>> =>
+      if len.toNat = 3 then len.toNat else 0
   | _ => 0
 
-def dependentWidthLiteralMatched : Nat :=
+def staticallySizedTermMatched : Nat :=
   bitmatch lengthPrefixedPacket with
-  | <<len : 8, 0xAABBCC : (8 * len.toNat)>> => len.toNat
+  | <<len : 8, (expectedLengthPrefixedPayload) : 24>> =>
+      if len.toNat = 3 then len.toNat else 0
   | _ => 0
 
-def dependentWidthLiteralMismatch : Nat :=
-  bitmatch lengthPrefixedPacket with
-  | <<len : 8, 0xAABBCA : (8 * len.toNat)>> => 1
-  | _ => 0
-
-def dependentWidthTermMatched : Nat :=
-  bitmatch lengthPrefixedPacket with
-  | <<len : 8, (expectedLengthPrefixedPayload) : (8 * len.toNat)>> => len.toNat
-  | _ => 0
-
-def dependentWidthSignedTermMatched : Nat :=
+def staticallySizedSignedTermMatched : Nat :=
   bitmatch signedLengthPrefixedPacket with
-  | <<len : 8, (-2) : (8 * len.toNat) / signed>> => len.toNat
+  | <<len : 8, (-2) : 16 / signed>> =>
+      if len.toNat = 2 then len.toNat else 0
   | _ => 0
 
-def dependentByteWidthLittleLiteralMatched : Nat :=
+def staticallySizedLittleLiteralMatched : Nat :=
   bitmatch littleLengthPrefixedPacket with
-  | <<len : 8, 0xAABBCC : bytes(len.toNat) / little>> => len.toNat
+  | <<len : 8, 0xAABBCC : bytes(3) / little>> =>
+      if len.toNat = 3 then len.toNat else 0
   | _ => 0
 
-def dependentByteWidthLittleCapture : Nat :=
+def staticallySizedLittleCapture : Nat :=
   bitmatch littleLengthPrefixedPacket with
-  | <<len : 8, payload : bytes(len.toNat) / little>> => payload.toNat
+  | <<len : 8, payload : bytes(3) / little>> =>
+      if len.toNat = 3 then payload.toNat else 0
   | _ => 0
 
-def dependentByteWidthLittleIgnore : Nat :=
+def staticallySizedLittleIgnore : Nat :=
   bitmatch littleLengthPrefixedPacket with
-  | <<len : 8, _ : bytes(len.toNat) / little>> => len.toNat
+  | <<len : 8, _ : bytes(3) / little>> =>
+      if len.toNat = 3 then len.toNat else 0
   | _ => 0
 
-def dependentByteWidthSignedLittleTermMatched : Nat :=
+def staticallySizedSignedLittleTermMatched : Nat :=
   bitmatch signedLittleLengthPrefixedPacket with
-  | <<len : 8, (-2) : bytes(len.toNat) / signed-little>> => len.toNat
+  | <<len : 8, (-2) : bytes(2) / signed-little>> =>
+      if len.toNat = 2 then len.toNat else 0
   | _ => 0
 
-def dependentByteWidthLittleMismatch : Nat :=
-  bitmatch littleLengthPrefixedPacket with
-  | <<len : 8, 0xAABBCA : bytes(len.toNat) / little>> => 1
-  | _ => 0
+/-
+Captured-dependent widths such as `(8 * len.toNat)` or `bytes(len.toNat)` are
+intentionally rejected by the matcher. See `Test/MatchErrors.lean` for guarded
+compile-error coverage of those forms.
+-/
 
 example : demoPacket = (0x0111002A#32) := by
   decide
@@ -208,40 +208,31 @@ example : capturedLittleWord = 0x1234 := by
 example : capturedSignedLittleWord = -2 := by
   native_decide
 
-example : dependentWidthPayload = 0xAABBCC := by
+example : staticallySizedPayload = 0xAABBCC := by
   native_decide
 
-example : dependentWidthIgnored = 3 := by
+example : staticallySizedIgnored = 3 := by
   native_decide
 
-example : dependentWidthFallback = 0 := by
+example : staticallySizedLiteralMatched = 3 := by
   native_decide
 
-example : dependentWidthLiteralMatched = 3 := by
+example : staticallySizedTermMatched = 3 := by
   native_decide
 
-example : dependentWidthLiteralMismatch = 0 := by
+example : staticallySizedSignedTermMatched = 2 := by
   native_decide
 
-example : dependentWidthTermMatched = 3 := by
+example : staticallySizedLittleLiteralMatched = 3 := by
   native_decide
 
-example : dependentWidthSignedTermMatched = 2 := by
+example : staticallySizedLittleCapture = 0xAABBCC := by
   native_decide
 
-example : dependentByteWidthLittleLiteralMatched = 3 := by
+example : staticallySizedLittleIgnore = 3 := by
   native_decide
 
-example : dependentByteWidthLittleCapture = 0xAABBCC := by
-  native_decide
-
-example : dependentByteWidthLittleIgnore = 3 := by
-  native_decide
-
-example : dependentByteWidthSignedLittleTermMatched = 2 := by
-  native_decide
-
-example : dependentByteWidthLittleMismatch = 0 := by
+example : staticallySizedSignedLittleTermMatched = 2 := by
   native_decide
 
 end LeanBitsyntax

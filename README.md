@@ -8,7 +8,8 @@ LeanBitsyntax is a Lean 4 experiment inspired by Erlang bit syntax. It borrows t
 - Construction lowers to regular helpers: `<<...>>` expands to functions in `LeanBitsyntax.Build`, rather than generating ad hoc bit-twiddling code everywhere.
 - Matching is a dedicated DSL: `bitmatch ... with` is implemented separately from Lean's native `match`, with typed `BitVec` remainder splitting rather than a dynamic intermediate bitstring wrapper.
 - Left-to-right semantics: matcher branches consume segments in order, fail on the first mismatch, and then either use an explicit fallback or, for the restricted total-rewrite form, omit the fallback entirely.
-- Explicit byte alignment for dynamic little-endian widths: the matcher uses `bytes(expr)` when a dependent width must be interpreted as a byte count.
+- Static width discipline: matcher widths must be justified from the branch's static type information rather than from earlier captured segment values.
+- Explicit byte alignment for little-endian widths: use `bytes(expr)` when a statically known byte count should be interpreted as a bit width.
 
 ## Public Modules
 
@@ -29,6 +30,7 @@ lake env lean Examples/IPv6PacketParsing.lean
 lake env lean LeanBitsyntax/Examples.lean
 lake env lean Test/Parser.lean
 lake env lean Test/Match.lean
+lake env lean Test/MatchErrors.lean
 ```
 
 ## Using As A Dependency
@@ -87,16 +89,20 @@ The current `bitmatch` subset supports:
 - one or more pattern branches with an explicit final fallback for ordinary partial matches
 - literal segments such as `1`, `42:16`, or `0x1234 : 16 / little`
 - comparison terms such as `(marker) : 8` or `(-2) : 16 / signed-little`
-- capture segments such as `kind : 8`, `word : 16 / little`, or `payload : (8 * len.toNat)`
-- ignored segments such as `_ : 16`, `_ : (8 * len.toNat)`, or `_ : bytes(len.toNat) / little`
-- dependent-width literals, comparisons, captures, and ignores using ordinary Lean `Nat` expressions
-- byte-aligned dependent little-endian and signed-little forms through `bytes(expr)`
+- capture segments such as `kind : 8`, `word : 16 / little`, or `payload : (8 * payloadBytes)` when `payloadBytes` is already statically available
+- ignored segments such as `_ : 16`, `_ : (headerBits)`, or `_ : bytes(4) / little`
+- width expressions using ordinary Lean `Nat` terms that are already statically available in the surrounding context
+- byte-aligned little-endian and signed-little forms through `bytes(expr)` when `expr` is statically known
 - full-input matching only: leftover bits cause the branch to fail and fall through
 
 If the explicit fallback is omitted, `bitmatch` currently accepts only a single
 structurally total capture/ignore rewrite branch. That form is meant for direct
 bit-preserving rewrites where the pattern fully determines the input shape and
 the result type matches the scrutinee type.
+
+Widths are checked statically. Patterns such as `<<len : 8, payload : (8 * len.toNat)>>`
+or `<<len : 8, payload : bytes(len.toNat) / little>>` are intentionally rejected;
+see `Test/MatchErrors.lean` for the guarded compile-failure cases.
 
 Current capture semantics:
 
@@ -126,39 +132,39 @@ def decodedWord : Nat :=
 	| _ => 0
 ```
 
-Dependent-width capture:
+Statically parameterized width:
 
 ```lean
-def payloadFromLengthPrefix : Nat :=
-	bitmatch <<3, 0xAABBCC:24>> with
-	| <<len : 8, payload : (8 * len.toNat)>> => payload.toNat
+def payloadFromKnownWidth (payloadBytes : Nat) (packet : BitVec (8 + (8 * payloadBytes))) : Nat :=
+	bitmatch packet with
+	| <<len : 8, payload : (8 * payloadBytes)>> => payload.toNat
 	| _ => 0
 ```
 
-Dependent-width literal comparison:
+Statically sized literal comparison:
 
 ```lean
 def payloadTagMatches : Nat :=
 	bitmatch <<3, 0xAABBCC:24>> with
-	| <<len : 8, 0xAABBCC : (8 * len.toNat)>> => len.toNat
+	| <<len : 8, 0xAABBCC : 24>> => len.toNat
 	| _ => 0
 ```
 
-Byte-aligned dependent little-endian capture:
+Byte-aligned little-endian capture:
 
 ```lean
 def littlePayloadMatches : Nat :=
-	bitmatch <<3, 0xAABBCC:24 / little>> with
-	| <<len : 8, payload : bytes(len.toNat) / little>> => payload.toNat
+	bitmatch <<0xAABBCCDD:32 / little>> with
+	| <<payload : bytes(4) / little>> => payload.toNat
 	| _ => 0
 ```
 
-Byte-aligned dependent signed-little comparison:
+Byte-aligned signed-little comparison:
 
 ```lean
 def signedPayloadMatches : Nat :=
-	bitmatch <<2, (-2) : 16 / signed-little>> with
-	| <<len : 8, (-2) : bytes(len.toNat) / signed-little>> => len.toNat
+	bitmatch <<(-2) : 16 / signed-little>> with
+	| <<(-2) : bytes(2) / signed-little>> => 1
 	| _ => 0
 ```
 
@@ -168,7 +174,8 @@ def signedPayloadMatches : Nat :=
 - The construction DSL is still a curated subset, not a general segment grammar.
 - The matcher is separate from Lean's native `match`; there is no pattern integration with ordinary inductive matches.
 - Captures currently elaborate to `BitVec` values, not directly to `Nat` or `Int`.
-- Dynamic little-endian widths require the explicit `bytes(expr)` form.
+- Pattern widths cannot depend on earlier captured values such as `len.toNat`; those cases are rejected at compile time.
+- Little-endian widths still require the explicit `bytes(expr)` form.
 - Floats, UTF encodings, and broader segment typing are not implemented.
 - Pretty-printing and delaboration support are still minimal.
 
@@ -189,7 +196,8 @@ The current surface syntax and some semantic choices are informed by the followi
 - `Examples/IPv6PacketParsing.lean` contains an IPv6 base-header parsing example.
 - `LeanBitsyntax/Examples.lean` contains the main usage examples.
 - `Test/Parser.lean` checks the construction parser surface.
-- `Test/Match.lean` checks matcher behavior, including dependent-width and little-endian cases.
+- `Test/Match.lean` checks matcher behavior for accepted static-width and little-endian cases.
+- `Test/MatchErrors.lean` keeps the rejected dependent-width forms as guarded compile-error tests.
 
 ## License
 

@@ -33,6 +33,9 @@ structure IPv6Packet where
   payload : BitVec payloadBits
 deriving Repr, DecidableEq
 
+abbrev ipv6HeaderMatchWidth (trailingBits : Nat) : Nat :=
+  4 + (8 + (20 + (16 + (8 + (8 + (128 + (128 + trailingBits)))))))
+
 def ipv6SourceAddress : BitVec 128 :=
   0x20010DB8000000000000000000000001#128
 
@@ -42,24 +45,24 @@ def ipv6DestinationAddress : BitVec 128 :=
 def ipv6Payload : BitVec 32 :=
   0xDEADBEEF#32
 
-def ipv6Packet : BitVec 352 :=
+def ipv6Packet : BitVec (ipv6HeaderMatchWidth 32) :=
   <<6:4, 0xAB:8, 0x54321:20, 4:16, 17, 64,
     (ipv6SourceAddress), (ipv6DestinationAddress), (ipv6Payload)>>
 
-def ipv6PacketBadLength : BitVec 352 :=
+def ipv6PacketBadLength : BitVec (ipv6HeaderMatchWidth 32) :=
   <<6:4, 0xAB:8, 0x54321:20, 5:16, 17, 64,
     (ipv6SourceAddress), (ipv6DestinationAddress), (ipv6Payload)>>
 
-def ipv6HeaderOnly : BitVec 320 :=
+def ipv6HeaderOnly : BitVec (ipv6HeaderMatchWidth 0) :=
   <<6:4, 0xAB:8, 0x54321:20, 4:16, 17, 64,
     (ipv6SourceAddress), (ipv6DestinationAddress)>>
 
-def parseIPv6Header {bits : Nat} (packet : BitVec bits) : Option IPv6Header :=
+def parseIPv6Header {trailingBits : Nat} (packet : BitVec (ipv6HeaderMatchWidth trailingBits)) : Option IPv6Header :=
   bitmatch packet with
   | <<6:4, trafficClass : 8, flowLabel : 20, payloadLength : 16,
       nextHeader : 8, hopLimit : 8,
       source : 128, destination : 128,
-      _ : (bits - 320)>> =>
+      _ : (trailingBits)>> =>
       some {
         trafficClass := trafficClass.toNat
         flowLabel := flowLabel.toNat
@@ -71,12 +74,12 @@ def parseIPv6Header {bits : Nat} (packet : BitVec bits) : Option IPv6Header :=
       }
   | _ => none
 
-def parseIPv6Packet {bits : Nat} (packet : BitVec bits) : Option IPv6Packet :=
+def parseIPv6Packet (packet : BitVec (ipv6HeaderMatchWidth 32)) : Option IPv6Packet :=
   bitmatch packet with
   | <<6:4, trafficClass : 8, flowLabel : 20, payloadLength : 16,
       nextHeader : 8, hopLimit : 8,
       source : 128, destination : 128,
-      payload : (8 * payloadLength.toNat)>> =>
+      payload : 32>> =>
       let header : IPv6Header := {
         trafficClass := trafficClass.toNat
         flowLabel := flowLabel.toNat
@@ -86,15 +89,18 @@ def parseIPv6Packet {bits : Nat} (packet : BitVec bits) : Option IPv6Packet :=
         source := source
         destination := destination
       }
-      some {
-        header := header
-        payloadBits := 8 * header.payloadLengthBytes
-        payload := payload
-      }
+      if header.payloadLengthBytes = 4 then
+        some {
+          header := header
+          payloadBits := 32
+          payload := payload
+        }
+      else
+        none
   | _ => none
 
 def parsedIPv6Header : Option IPv6Header :=
-  parseIPv6Header ipv6Packet
+  parseIPv6Header (trailingBits := 32) ipv6Packet
 
 def parsedIPv6Packet : Option IPv6Packet :=
   parseIPv6Packet ipv6Packet
@@ -110,7 +116,7 @@ example : parsedIPv6Header = some {
   } := by
   native_decide
 
-example : parseIPv6Header ipv6HeaderOnly = parsedIPv6Header := by
+example : parseIPv6Header (trailingBits := 0) ipv6HeaderOnly = parsedIPv6Header := by
   native_decide
 
 example : parsedIPv6Packet = some {

@@ -50,6 +50,7 @@ termination_by byteCount
 decreasing_by
   all_goals omega
 
+set_option maxRecDepth 1024 in
 def ipv4ChecksumAccUnrolled {byteCount : Nat} (bits : BitVec (8 * byteCount)) (csum : Nat) : Nat :=
   if _h16 : 16 ≤ byteCount then
     bitmatch bits with

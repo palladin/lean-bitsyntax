@@ -51,6 +51,22 @@ structure IPv4Packet where
   payload : BitVec payloadBits
 deriving Repr, DecidableEq
 
+abbrev ipv4HeaderMatchWidth (trailingBits : Nat) : Nat :=
+  4 + (
+    4 + (
+    6 + (
+    2 + (
+    16 + (
+    16 + (
+    3 + (
+    13 + (
+    8 + (
+    8 + (
+    16 + (
+    32 + (
+    32 + trailingBits
+    ))))))))))))
+
 def ipv4SourceAddress : BitVec 32 :=
   0xC0A8010A#32
 
@@ -63,26 +79,25 @@ def ipv4Options : BitVec 0 :=
 def ipv4Payload : BitVec 32 :=
   0xDEADBEEF#32
 
-def ipv4Packet : BitVec 192 :=
+def ipv4Packet : BitVec (ipv4HeaderMatchWidth 32) :=
   <<4:4, 5:4, 0:6, 0:2, 24:16, 0x1234:16, 2:3, 0:13, 64, 17, 0:16,
     (ipv4SourceAddress), (ipv4DestinationAddress), (ipv4Options), (ipv4Payload)>>
 
-def ipv4PacketBadLength : BitVec 192 :=
+def ipv4PacketBadLength : BitVec (ipv4HeaderMatchWidth 32) :=
   <<4:4, 5:4, 0:6, 0:2, 28:16, 0x1234:16, 2:3, 0:13, 64, 17, 0:16,
     (ipv4SourceAddress), (ipv4DestinationAddress), (ipv4Options), (ipv4Payload)>>
 
-def ipv4HeaderOnly : BitVec 160 :=
+def ipv4HeaderOnly : BitVec (ipv4HeaderMatchWidth 0) :=
   <<4:4, 5:4, 0:6, 0:2, 24:16, 0x1234:16, 2:3, 0:13, 64, 17, 0:16,
     (ipv4SourceAddress), (ipv4DestinationAddress), (ipv4Options)>>
 
-def parseIPv4Header {bits : Nat} (packet : BitVec bits) : Option IPv4Header :=
+def parseIPv4Header {trailingBits : Nat} (packet : BitVec (ipv4HeaderMatchWidth trailingBits)) : Option IPv4Header :=
   bitmatch packet with
   | <<4:4, ihlWords : 4, dscp : 6, ecn : 2, totalLength : 16,
       identification : 16, flags : 3, fragmentOffset : 13,
       ttl : 8, protocol : 8, headerChecksum : 16,
       source : 32, destination : 32,
-      _ : (32 * ihlWords.toNat - 160),
-      _ : (bits - 32 * ihlWords.toNat)>> =>
+      _ : (trailingBits)>> =>
       let header : IPv4Header := {
         ihlWords := ihlWords.toNat
         dscp := dscp.toNat
@@ -97,7 +112,7 @@ def parseIPv4Header {bits : Nat} (packet : BitVec bits) : Option IPv4Header :=
         source := source
         destination := destination
       }
-      if header.ihlWords < 5 then
+      if header.ihlWords ≠ 5 then
         none
       else if header.totalLengthBytes < header.headerBytes then
         none
@@ -105,14 +120,13 @@ def parseIPv4Header {bits : Nat} (packet : BitVec bits) : Option IPv4Header :=
         some header
   | _ => none
 
-def parseIPv4Packet {bits : Nat} (packet : BitVec bits) : Option IPv4Packet :=
+def parseIPv4Packet (packet : BitVec (ipv4HeaderMatchWidth 32)) : Option IPv4Packet :=
   bitmatch packet with
   | <<4:4, ihlWords : 4, dscp : 6, ecn : 2, totalLength : 16,
       identification : 16, flags : 3, fragmentOffset : 13,
       ttl : 8, protocol : 8, headerChecksum : 16,
       source : 32, destination : 32,
-      options : (32 * ihlWords.toNat - 160),
-      payload : (8 * totalLength.toNat - 32 * ihlWords.toNat)>> =>
+      payload : 32>> =>
       let header : IPv4Header := {
         ihlWords := ihlWords.toNat
         dscp := dscp.toNat
@@ -127,22 +141,22 @@ def parseIPv4Packet {bits : Nat} (packet : BitVec bits) : Option IPv4Packet :=
         source := source
         destination := destination
       }
-      if header.ihlWords < 5 then
+      if header.ihlWords ≠ 5 then
         none
-      else if header.totalLengthBytes < header.headerBytes then
+      else if header.totalLengthBytes ≠ 24 then
         none
       else
         some {
           header := header
-          optionsBits := 32 * header.ihlWords - 160
-          options := options
-          payloadBits := 8 * header.totalLengthBytes - 32 * header.ihlWords
+          optionsBits := 0
+          options := ipv4Options
+          payloadBits := 32
           payload := payload
         }
   | _ => none
 
 def parsedIPv4Header : Option IPv4Header :=
-  parseIPv4Header ipv4Packet
+  parseIPv4Header (trailingBits := 32) ipv4Packet
 
 def parsedIPv4Packet : Option IPv4Packet :=
   parseIPv4Packet ipv4Packet
@@ -163,7 +177,7 @@ example : parsedIPv4Header = some {
   } := by
   native_decide
 
-example : parseIPv4Header ipv4HeaderOnly = parsedIPv4Header := by
+example : parseIPv4Header (trailingBits := 0) ipv4HeaderOnly = parsedIPv4Header := by
   native_decide
 
 example : parsedIPv4Packet = some {

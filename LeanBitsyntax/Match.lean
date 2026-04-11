@@ -33,6 +33,7 @@ private inductive PatSegKind where
   | ignore
 
 private structure PatSeg where
+  source : Syntax
   width : TSyntax `term
   kind : PatSegKind
 
@@ -85,7 +86,7 @@ syntax "|" bitsPattern " => " term bitsMatchRest : bitsMatchArms
 syntax "|" bitsPattern " => " term : bitsMatchArms
 
 /--
-Fixed-width matching subset for the first matcher increment.
+Fixed-width matching subset for `bitmatch`.
 
 Currently supported pattern segments:
 - bare numeric literals, defaulting to 8 bits
@@ -93,10 +94,10 @@ Currently supported pattern segments:
 - modified numeric literals such as `n : w / little`
 - width-explicit comparison terms `(expr) : w`
 - captures `name : w` and modified captures such as `name : w / little`
-- dependent-width literal and comparison segments such as `0xAABBCC : (8 * len.toNat)`
-- dependent-width captures `name : (expr)` where `expr : Nat` can mention earlier captures
-- byte-aligned dependent-width little-endian forms such as `word : bytes(len.toNat) / little`
 - ignored segments `_ : w` and `_ : (expr)`
+- width expressions built from statically available names in the surrounding context
+
+Widths may not depend on earlier captures from the same pattern branch.
 
 Each pattern must consume the full input.
 
@@ -122,16 +123,64 @@ private def expandByteCount (byteCount : TSyntax `bitsPatByteCount) : MacroM (TS
       pure count
   | _ => Macro.throwUnsupported
 
+private def identMentionsAny (names : List Name) (val : Name) : Bool :=
+  let val := val.eraseMacroScopes
+  names.any fun captured =>
+    captured.eraseMacroScopes.isPrefixOf val
+
+private def isIdentChar (c : Char) : Bool :=
+  c.isAlphanum || c == '_' || c == '\''
+
+private def startsWithChars : List Char → List Char → Bool
+  | [], _ =>
+      true
+  | _ :: _, [] =>
+      false
+  | x :: xs, y :: ys =>
+      x == y && startsWithChars xs ys
+
+private def textMentionsName (text needle : String) : Bool :=
+  let needleChars := needle.toList
+  let rec loop (prev? : Option Char) : List Char → Bool
+    | [] =>
+        false
+    | chars@(c :: rest) =>
+        let boundaryBefore :=
+          match prev? with
+          | some prev => !isIdentChar prev
+          | none => true
+        let boundaryAfter :=
+          match chars.drop needleChars.length |>.head? with
+          | some next => !isIdentChar next
+          | none => true
+        if startsWithChars needleChars chars && boundaryBefore && boundaryAfter then
+          true
+        else
+          loop (some c) rest
+  if needleChars.isEmpty then
+    false
+  else
+    loop none text.toList
+
+private def syntaxTextMentionsAny (names : List Name) (stx : Syntax) : Bool :=
+  match stx.reprint with
+  | some text =>
+      names.any fun captured => textMentionsName text captured.eraseMacroScopes.toString
+  | none =>
+      false
+
 private partial def syntaxMentionsAny (names : List Name) : Syntax → Bool
   | Syntax.ident _ _ val _ =>
-    (names.map Name.eraseMacroScopes).contains val.eraseMacroScopes
+    identMentionsAny names val
   | Syntax.node _ _ args =>
     args.toList.any (syntaxMentionsAny names)
   | _ =>
     false
 
-private def widthSafeAgainst (captured : List Name) (width : TSyntax `term) : Bool :=
-  !syntaxMentionsAny captured width.raw
+private def widthSafeAgainst (captured : List Name) (segment : PatSeg) : Bool :=
+  !(syntaxMentionsAny captured segment.width.raw ||
+    syntaxTextMentionsAny captured segment.width.raw ||
+    syntaxTextMentionsAny captured segment.source)
 
 private def expandCaptureValue (mode : CaptureMode) (width raw : TSyntax `term) : MacroM (TSyntax `term) := do
   match mode with
@@ -148,11 +197,11 @@ private def expandCaptureValue (mode : CaptureMode) (width raw : TSyntax `term) 
 
 private def asPatSeg (segment : TSyntax `bitsPatSeg) : MacroM PatSeg := do
   let captureSeg (name : TSyntax `ident) (width : TSyntax `term) (mode : CaptureMode) : PatSeg :=
-    { width := width, kind := .capture name mode }
+    { source := segment.raw, width := width, kind := .capture name mode }
   let ignoreSeg (width : TSyntax `term) : PatSeg :=
-    { width := width, kind := .ignore }
+    { source := segment.raw, width := width, kind := .ignore }
   let guardSeg (width expected : TSyntax `term) : PatSeg :=
-    { width := width, kind := .guard expected }
+    { source := segment.raw, width := width, kind := .guard expected }
   match segment with
   | `(bitsPatSeg| $n:num) =>
     let width := mkNatTerm 8
@@ -269,7 +318,7 @@ private def ensureStaticWidthsAux (captured : List Name) : List PatSeg → Macro
   | [] =>
       pure ()
   | segment :: rest => do
-      if widthSafeAgainst captured segment.width then
+      if widthSafeAgainst captured segment then
         let captured' :=
           match patSegCaptureName? segment with
           | some name => captured.concat name

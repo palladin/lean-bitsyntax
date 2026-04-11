@@ -40,7 +40,7 @@ def fixedWidthFallbackWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthPayloadWins : Nat :=
@@ -49,7 +49,7 @@ def dependentWidthPayloadWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthIgnoreWins : Nat :=
@@ -58,7 +58,7 @@ def dependentWidthIgnoreWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthFallbackWins : Nat :=
@@ -67,7 +67,7 @@ def dependentWidthFallbackWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthLiteralWins : Nat :=
@@ -76,7 +76,7 @@ def dependentWidthLiteralWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthLiteralMismatchWins : Nat :=
@@ -85,7 +85,7 @@ def dependentWidthLiteralMismatchWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthTermWins : Nat :=
@@ -94,7 +94,7 @@ def dependentWidthTermWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthBigLiteralWins : Nat :=
@@ -103,7 +103,7 @@ def dependentWidthBigLiteralWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthBigTermWins : Nat :=
@@ -112,7 +112,7 @@ def dependentWidthBigTermWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthSignedTermWins : Nat :=
@@ -121,7 +121,7 @@ def dependentWidthSignedTermWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthSignedBigTermWins : Nat :=
@@ -130,7 +130,7 @@ def dependentWidthSignedBigTermWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleLiteralWins : Nat :=
@@ -139,7 +139,7 @@ def dependentByteWidthLittleLiteralWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleCaptureWins : Nat :=
@@ -148,7 +148,7 @@ def dependentByteWidthLittleCaptureWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleIgnoreWins : Nat :=
@@ -157,7 +157,7 @@ def dependentByteWidthLittleIgnoreWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthSignedLittleTermWins : Nat :=
@@ -166,7 +166,7 @@ def dependentByteWidthSignedLittleTermWins : Nat :=
   | _ => 0
 
 /--
-error: Unknown identifier `len.toNat`
+error: pattern widths must be statically determined
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleMismatchWins : Nat :=

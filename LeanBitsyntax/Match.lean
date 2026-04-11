@@ -41,14 +41,14 @@ private inductive CaptureMode where
   | little (byteCount : TSyntax `term)
   | signedLittle (byteCount : TSyntax `term)
 
-private inductive TotalPatSeg where
-  | capture (name : TSyntax `ident) (width : TSyntax `term) (mode : CaptureMode)
-  | ignore (width : TSyntax `term)
+private inductive PatSegKind where
+  | guard (expected : TSyntax `term)
+  | capture (name : TSyntax `ident) (mode : CaptureMode)
+  | ignore
 
-private inductive TypedBranchSeg where
-  | guard (width : TSyntax `term) (expected : TSyntax `term)
-  | capture (name : TSyntax `ident) (width : TSyntax `term) (mode : CaptureMode)
-  | ignore (width : TSyntax `term)
+private structure PatSeg where
+  width : TSyntax `term
+  kind : PatSegKind
 
 declare_syntax_cat bitsPatByteCount
 syntax "bytes" "(" term ")" : bitsPatByteCount
@@ -160,68 +160,13 @@ private def expandCaptureValue (mode : CaptureMode) (width raw : TSyntax `term) 
   | .signedLittle byteCount =>
     `(LeanBitsyntax.Build.signedLittleEndianSegment $byteCount $raw)
 
-private def totalPatSegWidth : TotalPatSeg → TSyntax `term
-  | .capture _ width _ => width
-  | .ignore width => width
-
-private def asTotalPatSeg (captured : List Name) (segment : TSyntax `bitsPatSeg) : MacroM (TotalPatSeg × List Name) := do
-  let captureIfSafe (name : TSyntax `ident) (width : TSyntax `term) (mode : CaptureMode) : MacroM (TotalPatSeg × List Name) := do
-    if widthSafeAgainst captured width then
-      pure (.capture name width mode, captured.concat name.getId)
-    else
-      Macro.throwUnsupported
-  let ignoreIfSafe (width : TSyntax `term) : MacroM (TotalPatSeg × List Name) := do
-    if widthSafeAgainst captured width then
-      pure (.ignore width, captured)
-    else
-      Macro.throwUnsupported
-  match segment with
-  | `(bitsPatSeg| $name:ident : $w:num) =>
-      captureIfSafe name (mkNatTerm w.getNat) .raw
-  | `(bitsPatSeg| $name:ident : ($w:term)) =>
-      captureIfSafe name w .raw
-  | `(bitsPatSeg| $name:ident : $w:num / big) =>
-      captureIfSafe name (mkNatTerm w.getNat) .unsigned
-  | `(bitsPatSeg| $name:ident : $w:num / signed) =>
-      captureIfSafe name (mkNatTerm w.getNat) .signed
-  | `(bitsPatSeg| $name:ident : $w:num / signed-big) =>
-      captureIfSafe name (mkNatTerm w.getNat) .signed
-  | `(bitsPatSeg| $name:ident : $w:num / little) => do
-      let byteCount ← byteCountFor w
-      captureIfSafe name (mkNatTerm w.getNat) (.little byteCount)
-  | `(bitsPatSeg| $name:ident : $w:num / signed-little) => do
-      let byteCount ← byteCountFor w
-      captureIfSafe name (mkNatTerm w.getNat) (.signedLittle byteCount)
-  | `(bitsPatSeg| $name:ident : $byteCount:bitsPatByteCount / little) => do
-      let byteCountTerm ← expandByteCount byteCount
-      let width ← `(LeanBitsyntax.ByteWidth $byteCountTerm)
-      captureIfSafe name width (.little byteCountTerm)
-  | `(bitsPatSeg| $name:ident : $byteCount:bitsPatByteCount / signed-little) => do
-      let byteCountTerm ← expandByteCount byteCount
-      let width ← `(LeanBitsyntax.ByteWidth $byteCountTerm)
-      captureIfSafe name width (.signedLittle byteCountTerm)
-  | `(bitsPatSeg| _ : $w:num) =>
-      ignoreIfSafe (mkNatTerm w.getNat)
-  | `(bitsPatSeg| _ : ($w:term)) =>
-      ignoreIfSafe w
-  | `(bitsPatSeg| _ : $byteCount:bitsPatByteCount / little) => do
-      let byteCountTerm ← expandByteCount byteCount
-      let width ← `(LeanBitsyntax.ByteWidth $byteCountTerm)
-      ignoreIfSafe width
-  | `(bitsPatSeg| _ : $byteCount:bitsPatByteCount / signed-little) => do
-      let byteCountTerm ← expandByteCount byteCount
-      let width ← `(LeanBitsyntax.ByteWidth $byteCountTerm)
-      ignoreIfSafe width
-  | _ =>
-      Macro.throwUnsupported
-
-private def asTypedBranchSeg (captured : List Name) (segment : TSyntax `bitsPatSeg) : MacroM (TypedBranchSeg × List Name) := do
-  let captureSeg (name : TSyntax `ident) (width : TSyntax `term) (mode : CaptureMode) :=
-    (.capture name width mode, captured.concat name.getId)
-  let ignoreSeg (width : TSyntax `term) :=
-    (.ignore width, captured)
-  let guardSeg (width expected : TSyntax `term) :=
-    (.guard width expected, captured)
+private def asPatSeg (segment : TSyntax `bitsPatSeg) : MacroM PatSeg := do
+  let captureSeg (name : TSyntax `ident) (width : TSyntax `term) (mode : CaptureMode) : PatSeg :=
+    { width := width, kind := .capture name mode }
+  let ignoreSeg (width : TSyntax `term) : PatSeg :=
+    { width := width, kind := .ignore }
+  let guardSeg (width expected : TSyntax `term) : PatSeg :=
+    { width := width, kind := .guard expected }
   match segment with
   | `(bitsPatSeg| $n:num) =>
     let width := mkNatTerm 8
@@ -328,71 +273,78 @@ private def sumWidthTerms : List (TSyntax `term) → MacroM (TSyntax `term)
       let tail ← sumWidthTerms rest
       `($width + $tail)
 
-private def totalPatSegsAux (captured : List Name) : List (TSyntax `bitsPatSeg) → MacroM (List TotalPatSeg)
-  | [] =>
-    pure []
-  | segment :: rest => do
-    let (current, captured') ← asTotalPatSeg captured segment
-    let tail ← totalPatSegsAux captured' rest
-    pure (current :: tail)
-
-private def totalPatSegs (pattern : TSyntax `bitsPattern) : MacroM (List TotalPatSeg) := do
+private def patSegs (pattern : TSyntax `bitsPattern) : MacroM (List PatSeg) := do
   match pattern with
   | `(bitsPattern| << $segments:bitsPatSeg,* >>) =>
-      totalPatSegsAux [] segments.getElems.toList
+      segments.getElems.toList.mapM asPatSeg
   | _ =>
       Macro.throwUnsupported
 
-private def typedBranchSegsAux (captured : List Name) : List (TSyntax `bitsPatSeg) → MacroM (List TypedBranchSeg)
+private def ensureTotalPatSegsAux (captured : List Name) : List PatSeg → MacroM Unit
   | [] =>
-    pure []
-  | segment :: rest => do
-    let (current, captured') ← asTypedBranchSeg captured segment
-    let tail ← typedBranchSegsAux captured' rest
-    pure (current :: tail)
+      pure ()
+  | segment :: rest =>
+      match segment.kind with
+      | .guard _ =>
+          Macro.throwUnsupported
+      | .capture name _ =>
+          if widthSafeAgainst captured segment.width then
+            ensureTotalPatSegsAux (captured.concat name.getId) rest
+          else
+            Macro.throwUnsupported
+      | .ignore =>
+          if widthSafeAgainst captured segment.width then
+            ensureTotalPatSegsAux captured rest
+          else
+            Macro.throwUnsupported
 
-private def typedBranchSegs (pattern : TSyntax `bitsPattern) : MacroM (List TypedBranchSeg) := do
-  match pattern with
-  | `(bitsPattern| << $segments:bitsPatSeg,* >>) =>
-    typedBranchSegsAux [] segments.getElems.toList
-  | _ =>
-    Macro.throwUnsupported
+private def totalPatSegs (pattern : TSyntax `bitsPattern) : MacroM (List PatSeg) := do
+  let segments ← patSegs pattern
+  ensureTotalPatSegsAux [] segments
+  pure segments
 
-private def expandTotalPatSegs (bits : TSyntax `term) (segments : List TotalPatSeg)
+private def typedBranchSegs (pattern : TSyntax `bitsPattern) : MacroM (List PatSeg) :=
+  patSegs pattern
+
+private def expandTotalPatSegs (bits : TSyntax `term) (segments : List PatSeg)
     (body : TSyntax `term) : MacroM (TSyntax `term) := do
   match segments with
   | [] =>
       pure body
   | [segment] =>
-    match segment with
-    | .capture name width .raw =>
-      `(let $name := LeanBitsyntax.Match.exactWidth $width $bits (by omega); $body)
-    | .capture name width mode => do
-      let rawTerm ← `(LeanBitsyntax.Match.exactWidth $width $bits (by omega))
-      let captured ← expandCaptureValue mode width rawTerm
+    match segment.kind with
+    | .guard _ =>
+      Macro.throwUnsupported
+    | .capture name .raw =>
+      `(let $name := LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by omega); $body)
+    | .capture name mode => do
+      let rawTerm ← `(LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by omega))
+      let captured ← expandCaptureValue mode segment.width rawTerm
       `(let $name := $captured;
         $body)
-    | .ignore width => do
+    | .ignore => do
       let ignoredId := mkIdent `__ignored
-      `(let $ignoredId := LeanBitsyntax.Match.exactWidth $width $bits (by omega); $body)
+      `(let $ignoredId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by omega); $body)
   | segment :: rest => do
-      let tailWidth ← sumWidthTerms (rest.map totalPatSegWidth)
+      let tailWidth ← sumWidthTerms (rest.map fun seg => seg.width)
       let restId := mkIdent `__rest
       let restTerm : TSyntax `term := ⟨restId.raw⟩
       let tail ← expandTotalPatSegs restTerm rest body
-      match segment with
-      | TotalPatSeg.capture name width CaptureMode.raw =>
-          `(let ($name, $restId) := LeanBitsyntax.Match.splitExact $width $tailWidth $bits (by omega); $tail)
-      | .capture name width mode => do
+      match segment.kind with
+      | .guard _ =>
+          Macro.throwUnsupported
+      | .capture name CaptureMode.raw =>
+          `(let ($name, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by omega); $tail)
+      | .capture name mode => do
           let rawId := mkIdent `__segment
           let rawTerm : TSyntax `term := ⟨rawId.raw⟩
-          let captured ← expandCaptureValue mode width rawTerm
-          `(let ($rawId, $restId) := LeanBitsyntax.Match.splitExact $width $tailWidth $bits (by omega);
+          let captured ← expandCaptureValue mode segment.width rawTerm
+          `(let ($rawId, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by omega);
             let $name := $captured;
             $tail)
-      | .ignore width => do
+      | .ignore => do
           let ignoredId := mkIdent `__ignored
-          `(let ($ignoredId, $restId) := LeanBitsyntax.Match.splitExact $width $tailWidth $bits (by omega); $tail)
+          `(let ($ignoredId, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by omega); $tail)
 
 private def expandTotalPattern (bits : TSyntax `term) (pattern : TSyntax `bitsPattern)
   (body : TSyntax `term) : MacroM (TSyntax `term) := do
@@ -403,7 +355,7 @@ private def expandTotalPattern (bits : TSyntax `term) (pattern : TSyntax `bitsPa
   | [] =>
     Macro.throwUnsupported
 
-private def expandTypedBranchSegs (bits : TSyntax `term) (segments : List TypedBranchSeg)
+private def expandTypedBranchSegs (bits : TSyntax `term) (segments : List PatSeg)
     (body fallback : TSyntax `term) : MacroM (TSyntax `term) := do
   match segments with
   | [] =>
@@ -411,27 +363,27 @@ private def expandTypedBranchSegs (bits : TSyntax `term) (segments : List TypedB
       `(LeanBitsyntax.Match.continueIfExact 0 $bits $fallback (fun $emptyId =>
         $body))
   | [segment] =>
-      match segment with
-      | .guard width expected => do
+      match segment.kind with
+      | .guard expected => do
           let rawId := mkIdent `__segment
-          `(LeanBitsyntax.Match.continueIfExact $width $bits $fallback (fun $rawId =>
+          `(LeanBitsyntax.Match.continueIfExact $(segment.width) $bits $fallback (fun $rawId =>
             if $rawId = $expected then
               $body
             else
               $fallback))
-      | TypedBranchSeg.capture name width CaptureMode.raw =>
-          `(LeanBitsyntax.Match.continueIfExact $width $bits $fallback (fun $name =>
+      | .capture name CaptureMode.raw =>
+          `(LeanBitsyntax.Match.continueIfExact $(segment.width) $bits $fallback (fun $name =>
             $body))
-      | .capture name width mode => do
+      | .capture name mode => do
           let rawId := mkIdent `__segment
           let rawTerm : TSyntax `term := ⟨rawId.raw⟩
-          let captured ← expandCaptureValue mode width rawTerm
-          `(LeanBitsyntax.Match.continueIfExact $width $bits $fallback (fun $rawId =>
+          let captured ← expandCaptureValue mode segment.width rawTerm
+          `(LeanBitsyntax.Match.continueIfExact $(segment.width) $bits $fallback (fun $rawId =>
             let $name := $captured;
             $body))
-      | .ignore width => do
+      | .ignore => do
           let ignoredId := mkIdent `__ignored
-          `(LeanBitsyntax.Match.continueIfExact $width $bits $fallback (fun $ignoredId =>
+          `(LeanBitsyntax.Match.continueIfExact $(segment.width) $bits $fallback (fun $ignoredId =>
             $body))
   | segment :: rest => do
       let rawId := mkIdent `__segment
@@ -439,24 +391,24 @@ private def expandTypedBranchSegs (bits : TSyntax `term) (segments : List TypedB
       let restId := mkIdent `__rest
       let restTerm : TSyntax `term := ⟨restId.raw⟩
       let tail ← expandTypedBranchSegs restTerm rest body fallback
-      match segment with
-      | .guard width expected =>
-          `(LeanBitsyntax.Match.continueIfFits $width $bits $fallback (fun $rawId $restId =>
+      match segment.kind with
+      | .guard expected =>
+          `(LeanBitsyntax.Match.continueIfFits $(segment.width) $bits $fallback (fun $rawId $restId =>
             if $rawId = $expected then
               $tail
             else
               $fallback))
-      | TypedBranchSeg.capture name width CaptureMode.raw =>
-          `(LeanBitsyntax.Match.continueIfFits $width $bits $fallback (fun $name $restId =>
+      | .capture name CaptureMode.raw =>
+          `(LeanBitsyntax.Match.continueIfFits $(segment.width) $bits $fallback (fun $name $restId =>
             $tail))
-      | .capture name width mode => do
-          let captured ← expandCaptureValue mode width rawTerm
-          `(LeanBitsyntax.Match.continueIfFits $width $bits $fallback (fun $rawId $restId =>
+      | .capture name mode => do
+          let captured ← expandCaptureValue mode segment.width rawTerm
+          `(LeanBitsyntax.Match.continueIfFits $(segment.width) $bits $fallback (fun $rawId $restId =>
             let $name := $captured;
             $tail))
-      | .ignore width => do
+      | .ignore => do
           let ignoredId := mkIdent `__ignored
-          `(LeanBitsyntax.Match.continueIfFits $width $bits $fallback (fun $ignoredId $restId =>
+          `(LeanBitsyntax.Match.continueIfFits $(segment.width) $bits $fallback (fun $ignoredId $restId =>
             $tail))
 
 private def expandTypedBranch (bits : TSyntax `term) (pattern : TSyntax `bitsPattern)

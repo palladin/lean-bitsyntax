@@ -38,6 +38,12 @@ def littleLengthPrefixedPacket : BitVec 32 :=
 def signedLittleLengthPrefixedPacket : BitVec 24 :=
   <<2, (-2) : 16 / signed-little>>
 
+def boundedDependentWidthPacket : BitVec 32 :=
+  <<3:2, 5:3, 0:27>>
+
+def boundedDependentByteWidthPacket : BitVec 32 :=
+  <<2:2, 0xAABB:16 / little, 0:14>>
+
 def decodedPayload : Nat :=
   bitmatch packet with
   | <<1, kind : 8, payload : 16>> => payload.toNat + kind.toNat
@@ -89,7 +95,6 @@ def signedPatternWins : Nat :=
 def explicitSignedBigPatternWins : Int :=
   bitmatch signedBigWord with
   | <<word : 16 / signed-big>> => word.toInt
-  | _ => 0
 
 def explicitSignedBigTermPatternWins : Nat :=
   bitmatch signedBigWord with
@@ -125,24 +130,20 @@ def explicitFallbackReturnsInput : BitVec 16 :=
 def littleCaptureWins : Nat :=
   bitmatch littleWord with
   | <<word : 16 / little>> => word.toNat
-  | _ => 0
 
 def signedLittleCaptureWins : Int :=
   bitmatch signedLittleWord with
   | <<word : 16 / signed-little>> => word.toInt
-  | _ => 0
 
 def fixedWidthPayloadWins : Nat :=
   bitmatch lengthPrefixedPacket with
   | <<len : 8, payload : 24>> =>
       if len.toNat = 3 then payload.toNat else 0
-  | _ => 0
 
 def fixedWidthIgnoreWins : Nat :=
   bitmatch lengthPrefixedPacket with
   | <<len : 8, _ : 24>> =>
       if len.toNat = 3 then len.toNat else 0
-  | _ => 0
 
 def fixedWidthLiteralWins : Nat :=
   bitmatch lengthPrefixedPacket with
@@ -186,6 +187,13 @@ def fixedWidthSignedBigTermWins : Nat :=
       if len.toNat = 2 then len.toNat else 0
   | _ => 0
 
+def dependentWidthCaptureWins : Nat :=
+  bitmatch boundedDependentWidthPacket with
+  | <<len : 2, payload : (len.toNat), _ : (30 - len.toNat)>> => payload.toNat
+  --| _ => 0
+
+#print dependentWidthCaptureWins
+
 def fixedByteWidthLittleLiteralWins : Nat :=
   bitmatch littleLengthPrefixedPacket with
   | <<len : 8, 0xAABBCC : bytes(3) / little>> =>
@@ -196,19 +204,21 @@ def fixedByteWidthLittleCaptureWins : Nat :=
   bitmatch littleLengthPrefixedPacket with
   | <<len : 8, payload : bytes(3) / little>> =>
       if len.toNat = 3 then payload.toNat else 0
-  | _ => 0
 
 def fixedByteWidthLittleIgnoreWins : Nat :=
   bitmatch littleLengthPrefixedPacket with
   | <<len : 8, _ : bytes(3) / little>> =>
       if len.toNat = 3 then len.toNat else 0
-  | _ => 0
 
 def fixedByteWidthSignedLittleTermWins : Nat :=
   bitmatch signedLittleLengthPrefixedPacket with
   | <<len : 8, (-2) : bytes(2) / signed-little>> =>
       if len.toNat = 2 then len.toNat else 0
   | _ => 0
+
+def dependentByteWidthLittleCaptureWins : Nat :=
+  bitmatch boundedDependentByteWidthPacket with
+  | <<len : 2, payload : bytes(len.toNat) / little, _ : (30 - (8 * len.toNat))>> => payload.toNat
 
 def fixedByteWidthLittleMismatchWins : Nat :=
   bitmatch littleLengthPrefixedPacket with
@@ -300,6 +310,9 @@ example : fixedWidthSignedTermWins = 2 := by
 example : fixedWidthSignedBigTermWins = 2 := by
   native_decide
 
+example : dependentWidthCaptureWins = 5 := by
+  native_decide
+
 example : fixedByteWidthLittleLiteralWins = 3 := by
   native_decide
 
@@ -313,6 +326,9 @@ example : fixedByteWidthSignedLittleTermWins = 2 := by
   native_decide
 
 example : fixedByteWidthLittleMismatchWins = 0 := by
+  native_decide
+
+example : dependentByteWidthLittleCaptureWins = 0xAABB := by
   native_decide
 
 end LeanBitsyntax.Test

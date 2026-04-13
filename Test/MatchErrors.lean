@@ -20,8 +20,11 @@ def littleLengthPrefixedPacket : BitVec 32 :=
 def signedLittleLengthPrefixedPacket : BitVec 24 :=
   <<2, (-2) : 16 / signed-little>>
 
+def boundedDependentWidthPacket : BitVec 32 :=
+  <<3:2, 5:3, 0:27>>
+
 /--
-error: unsolved goals
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def fallbackOnWidthMismatch : Nat :=
@@ -30,7 +33,7 @@ def fallbackOnWidthMismatch : Nat :=
   | _ => 2
 
 /--
-error: unsolved goals
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def fixedWidthFallbackWins : Nat :=
@@ -40,7 +43,7 @@ def fixedWidthFallbackWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthPayloadWins : Nat :=
@@ -49,7 +52,7 @@ def dependentWidthPayloadWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthIgnoreWins : Nat :=
@@ -58,7 +61,7 @@ def dependentWidthIgnoreWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthFallbackWins : Nat :=
@@ -67,7 +70,7 @@ def dependentWidthFallbackWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthLiteralWins : Nat :=
@@ -76,7 +79,7 @@ def dependentWidthLiteralWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthLiteralMismatchWins : Nat :=
@@ -85,7 +88,7 @@ def dependentWidthLiteralMismatchWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthTermWins : Nat :=
@@ -94,7 +97,7 @@ def dependentWidthTermWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthBigLiteralWins : Nat :=
@@ -103,7 +106,7 @@ def dependentWidthBigLiteralWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthBigTermWins : Nat :=
@@ -112,7 +115,7 @@ def dependentWidthBigTermWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthSignedTermWins : Nat :=
@@ -121,7 +124,7 @@ def dependentWidthSignedTermWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentWidthSignedBigTermWins : Nat :=
@@ -130,7 +133,7 @@ def dependentWidthSignedBigTermWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleLiteralWins : Nat :=
@@ -139,7 +142,7 @@ def dependentByteWidthLittleLiteralWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleCaptureWins : Nat :=
@@ -148,7 +151,7 @@ def dependentByteWidthLittleCaptureWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleIgnoreWins : Nat :=
@@ -157,7 +160,7 @@ def dependentByteWidthLittleIgnoreWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthSignedLittleTermWins : Nat :=
@@ -166,12 +169,30 @@ def dependentByteWidthSignedLittleTermWins : Nat :=
   | _ => 0
 
 /--
-error: pattern widths must be statically determined
+error: omega could not prove the goal:
 -/
 #guard_msgs (error, substring := true) in
 def dependentByteWidthLittleMismatchWins : Nat :=
   bitmatch littleLengthPrefixedPacket with
   | <<len : 8, 0xAABBCA : bytes(len.toNat) / little>> => 1
+  | _ => 0
+
+/--
+error: omega could not prove the goal:
+-/
+#guard_msgs (error, substring := true) in
+def dependentWidthPayloadWinsFoo : Nat :=
+  bitmatch packet with
+  | <<len : 2, payload : (len.toNat)>> => payload.toNat
+  | _ => 0
+
+/--
+error: explicit fallback is unnecessary
+-/
+#guard_msgs (error, substring := true) in
+def unnecessaryExplicitFallback : Nat :=
+  bitmatch boundedDependentWidthPacket with
+  | <<len : 2, payload : (len.toNat), _ : (30 - len.toNat)>> => payload.toNat
   | _ => 0
 
 end LeanBitsyntax.Test

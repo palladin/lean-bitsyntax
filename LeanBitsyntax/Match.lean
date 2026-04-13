@@ -2,6 +2,7 @@ import Lean
 import LeanBitsyntax.Syntax
 
 open Lean
+open Lean.Elab.Term
 
 namespace LeanBitsyntax.Match
 
@@ -15,6 +16,12 @@ def splitExact (headWidth tailWidth : Nat) {n : Nat} (bits : BitVec n)
 def exactWidth (width : Nat) {n : Nat} (bits : BitVec n) (_h : n = width) : BitVec width := by
   subst n
   exact bits
+
+def splitPrefix (headWidth : Nat) {n : Nat} (bits : BitVec n)
+    (h : headWidth ≤ n) : BitVec headWidth × BitVec (n - headWidth) := by
+  have hEq : n = headWidth + (n - headWidth) := by
+    omega
+  exact splitExact headWidth (n - headWidth) bits hEq
 
 end LeanBitsyntax.Match
 
@@ -95,9 +102,7 @@ Currently supported pattern segments:
 - width-explicit comparison terms `(expr) : w`
 - captures `name : w` and modified captures such as `name : w / little`
 - ignored segments `_ : w` and `_ : (expr)`
-- width expressions built from statically available names in the surrounding context
-
-Widths may not depend on earlier captures from the same pattern branch.
+- width expressions built from surrounding context and earlier captures when the required arithmetic proofs can be discharged statically
 
 Each pattern must consume the full input.
 
@@ -299,41 +304,10 @@ private def asPatSeg (segment : TSyntax `bitsPatSeg) : MacroM PatSeg := do
   | _ =>
     Macro.throwUnsupported
 
-private def sumWidthTerms : List (TSyntax `term) → MacroM (TSyntax `term)
-  | [] =>
-      pure (mkNatTerm 0)
-  | [width] =>
-      pure width
-  | width :: rest => do
-      let tail ← sumWidthTerms rest
-      `($width + $tail)
-
-private def patSegCaptureName? : PatSeg → Option Name
-  | segment =>
-      match segment.kind with
-      | .capture name _ => some name.getId
-      | _ => none
-
-private def ensureStaticWidthsAux (captured : List Name) : List PatSeg → MacroM Unit
-  | [] =>
-      pure ()
-  | segment :: rest => do
-      if widthSafeAgainst captured segment then
-        let captured' :=
-          match patSegCaptureName? segment with
-          | some name => captured.concat name
-          | none => captured
-        ensureStaticWidthsAux captured' rest
-      else
-        Macro.throwErrorAt segment.width
-          "pattern widths must be statically determined; width terms cannot depend on earlier captures"
-
 private def patSegs (pattern : TSyntax `bitsPattern) : MacroM (List PatSeg) := do
   match pattern with
   | `(bitsPattern| << $segments:bitsPatSeg,* >>) =>
-      let parsed ← segments.getElems.toList.mapM asPatSeg
-      ensureStaticWidthsAux [] parsed
-      pure parsed
+      segments.getElems.toList.mapM asPatSeg
   | _ =>
       Macro.throwUnsupported
 
@@ -354,84 +328,88 @@ private def totalPatSegs (pattern : TSyntax `bitsPattern) : MacroM (List PatSeg)
   ensureTotalPatSegsAux segments
   pure segments
 
+private def mkWidthProof (captured : List (TSyntax `ident)) : MacroM (TSyntax `term) := do
+  let base ← `(by
+    try simp [LeanBitsyntax.ByteWidth] at *
+    all_goals omega)
+  captured.foldrM (init := base) fun name tail => do
+    let nameTerm : TSyntax `term := ⟨name.raw⟩
+    let bound ← `(BitVec.isLt $nameTerm)
+    `(by
+      have _ := $bound
+      exact $tail)
+
 private def expandPatSegs (bits : TSyntax `term) (segments : List PatSeg)
-    (body : TSyntax `term) (fallback? : Option (TSyntax `term)) : MacroM (TSyntax `term) := do
+    (body : TSyntax `term) (fallback? : Option (TSyntax `term))
+    (captured : List (TSyntax `ident)) : MacroM (TSyntax `term) := do
   match segments with
-  | [] =>
-      pure body
-  | [segment] =>
+  | [] => do
+      let proof ← mkWidthProof captured
+      let matchedId := mkIdent `__matched
+      `(let $matchedId := LeanBitsyntax.Match.exactWidth 0 $bits ($proof);
+        $body)
+  | [segment] => do
+      let proof ← mkWidthProof captured
       match segment.kind with
       | .guard expected => do
           let rawId := mkIdent `__segment
           match fallback? with
           | some fallback =>
-                `(let $rawId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by
-                  try simp [LeanBitsyntax.ByteWidth] at *
-                  try omega);
+              `(let $rawId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits ($proof);
                 if $rawId = $expected then
                   $body
                 else
                   $fallback)
           | none =>
               Macro.throwUnsupported
-      | .capture name .raw =>
-            `(let $name := LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by
-              try simp [LeanBitsyntax.ByteWidth] at *
-              try omega);
+        | .capture name .raw =>
+          `(let $name := LeanBitsyntax.Match.exactWidth $(segment.width) $bits ($proof);
             $body)
       | .capture name mode => do
           let rawId := mkIdent `__segment
           let rawTerm : TSyntax `term := ⟨rawId.raw⟩
-          let captured ← expandCaptureValue mode segment.width rawTerm
-          `(let $rawId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by
-            try simp [LeanBitsyntax.ByteWidth] at *
-            try omega);
-          let $name := $captured;
-          $body)
+          let captureValue ← expandCaptureValue mode segment.width rawTerm
+          `(let $rawId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits ($proof);
+            let $name := $captureValue;
+            $body)
       | .ignore => do
           let ignoredId := mkIdent `__ignored
-          `(let $ignoredId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits (by
-            try simp [LeanBitsyntax.ByteWidth] at *
-            try omega);
-          $body)
+          `(let $ignoredId := LeanBitsyntax.Match.exactWidth $(segment.width) $bits ($proof);
+            $body)
   | segment :: rest => do
-      let tailWidth ← sumWidthTerms (rest.map fun seg => seg.width)
+      let proof ← mkWidthProof captured
       let rawId := mkIdent `__segment
       let rawTerm : TSyntax `term := ⟨rawId.raw⟩
       let restId := mkIdent `__rest
       let restTerm : TSyntax `term := ⟨restId.raw⟩
-      let tail ← expandPatSegs restTerm rest body fallback?
+      let tailCaptured :=
+        match segment.kind with
+        | .capture name _ => captured.concat name
+        | _ => captured
+      let tail ← expandPatSegs restTerm rest body fallback? tailCaptured
       match segment.kind with
       | .guard expected => do
           match fallback? with
           | some fallback =>
-                `(let ($rawId, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by
-                  try simp [LeanBitsyntax.ByteWidth] at *
-                  try omega);
+              `(let ($rawId, $restId) := LeanBitsyntax.Match.splitPrefix $(segment.width) $bits ($proof);
                 if $rawId = $expected then
                   $tail
                 else
                   $fallback)
           | none =>
               Macro.throwUnsupported
-      | .capture name .raw =>
-            `(let ($name, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by
-              try simp [LeanBitsyntax.ByteWidth] at *
-              try omega);
+        | .capture name .raw =>
+          `(let ($name, $restId) := LeanBitsyntax.Match.splitPrefix $(segment.width) $bits ($proof);
             $tail)
       | .capture name mode => do
-          let captured ← expandCaptureValue mode segment.width rawTerm
-          `(let ($rawId, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by
-            try simp [LeanBitsyntax.ByteWidth] at *
-            try omega);
-          let $name := $captured;
-          $tail)
+          let captureValue ← expandCaptureValue mode segment.width rawTerm
+          `(let ($rawId, $restId) := LeanBitsyntax.Match.splitPrefix $(segment.width) $bits ($proof);
+            let $name := $captureValue;
+            $tail)
       | .ignore => do
           let ignoredId := mkIdent `__ignored
-          `(let ($ignoredId, $restId) := LeanBitsyntax.Match.splitExact $(segment.width) $tailWidth $bits (by
-            try simp [LeanBitsyntax.ByteWidth] at *
-            try omega);
-          $tail)
+          `(let ($ignoredId, $restId) := LeanBitsyntax.Match.splitPrefix $(segment.width) $bits ($proof);
+            $tail)
 
 private def expandPattern (bits : TSyntax `term) (pattern : TSyntax `bitsPattern)
     (body : TSyntax `term) (fallback? : Option (TSyntax `term)) : MacroM (TSyntax `term) := do
@@ -441,18 +419,11 @@ private def expandPattern (bits : TSyntax `term) (pattern : TSyntax `bitsPattern
         patSegs pattern
     | none =>
         totalPatSegs pattern
-  let totalWidth ← sumWidthTerms (segments.map fun segment => segment.width)
-  let typedBitsId := mkIdent `__matched
-  let typedBitsTerm : TSyntax `term := ⟨typedBitsId.raw⟩
   match segments, fallback? with
   | [], none =>
       Macro.throwUnsupported
   | _, _ =>
-      let expanded ← expandPatSegs typedBitsTerm segments body fallback?
-      `(let $typedBitsId := LeanBitsyntax.Match.exactWidth $totalWidth $bits (by
-        try simp [LeanBitsyntax.ByteWidth] at *
-        try omega);
-      $expanded)
+      expandPatSegs bits segments body fallback? []
 
 private partial def restHasExplicitFallback : TSyntax `bitsMatchRest → Bool
   | `(bitsMatchRest| | _ => $_fallback) =>
@@ -478,6 +449,16 @@ private def singleArm? : TSyntax `bitsMatchArms → Option (TSyntax `bitsPattern
   | _ =>
       none
 
+private def singleArmWithExplicitFallback? : TSyntax `bitsMatchArms → Option (TSyntax `bitsPattern × TSyntax `bitsMatchRest)
+  | `(bitsMatchArms| | $pattern:bitsPattern => $_body $rest:bitsMatchRest) =>
+    match rest with
+    | `(bitsMatchRest| | _ => $_fallback) =>
+      some (pattern, rest)
+    | _ =>
+      none
+  | _ =>
+    none
+
 private partial def expandMatchRest (bits defaultFallback : TSyntax `term) : TSyntax `bitsMatchRest → MacroM (TSyntax `term)
   | `(bitsMatchRest| | _ => $fallback) =>
       pure fallback
@@ -496,25 +477,40 @@ private def expandMatchArms (bits defaultFallback : TSyntax `term) : TSyntax `bi
       expandPattern bits pattern body (some next)
   | _ => Macro.throwUnsupported
 
-macro_rules
+elab_rules : term
   | `(bitmatchTerm| bitmatch $scrutinee:term with $arms:bitsMatchArms) => do
-        let scrutineeId := mkIdent `__scrutinee
-        let scrutineeTerm : TSyntax `term := ⟨scrutineeId.raw⟩
-        if armsHasExplicitFallback arms then
+      let scrutineeId := mkIdent `__scrutinee
+      let scrutineeTerm : TSyntax `term := ⟨scrutineeId.raw⟩
+      if armsHasExplicitFallback arms then
+        let explicitExpanded ← Lean.Elab.liftMacroM do
           let expanded ← expandMatchArms scrutineeTerm scrutineeTerm arms
           `(let $scrutineeId := $scrutinee;
             $expanded)
+        if let some (pattern, fallbackRest) := singleArmWithExplicitFallback? arms then
+          let isTotalBranch ← Lean.Elab.liftMacroM do
+            try
+              discard <| totalPatSegs pattern
+              pure true
+            catch _ =>
+              pure false
+          let explicitExpr ← elabTerm explicitExpanded none
+          if isTotalBranch then
+            throwErrorAt fallbackRest "explicit fallback is unnecessary; this single branch is already total, so omit the final `| _ => ...` branch"
+          pure explicitExpr
         else
-          match singleArm? arms with
-          | some (pattern, body) =>
-              let expanded ←
-                try
-                  expandPattern scrutineeTerm pattern body none
-                catch _ =>
-                  Macro.throwErrorAt arms "omitted fallback currently requires a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
-              `(let $scrutineeId := $scrutinee;
-                $expanded)
-          | none =>
-              Macro.throwErrorAt arms "omitted fallback currently requires a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
+          elabTerm explicitExpanded none
+      else
+        match singleArm? arms with
+        | some (pattern, body) =>
+            let expanded ← Lean.Elab.liftMacroM do
+              try
+                let expanded ← expandPattern scrutineeTerm pattern body none
+                `(let $scrutineeId := $scrutinee;
+                  $expanded)
+              catch _ =>
+                Macro.throwErrorAt arms "omitted fallback currently requires a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
+            elabTerm expanded none
+        | none =>
+            throwErrorAt arms "omitted fallback currently requires a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
 
 end LeanBitsyntax

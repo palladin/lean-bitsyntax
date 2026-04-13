@@ -8,7 +8,7 @@ LeanBitsyntax is a Lean 4 experiment inspired by Erlang bit syntax. It borrows t
 - Construction lowers to regular helpers: `<<...>>` expands to functions in `LeanBitsyntax.Build`, rather than generating ad hoc bit-twiddling code everywhere.
 - Matching is a dedicated DSL: `bitmatch ... with` is implemented separately from Lean's native `match`, with typed `BitVec` remainder splitting rather than a dynamic intermediate bitstring wrapper.
 - Left-to-right semantics: matcher branches consume segments in order, fail on the first mismatch, and then either use an explicit fallback or, for the restricted total-rewrite form, omit the fallback entirely.
-- Static width discipline: matcher widths must be justified from the branch's static type information rather than from earlier captured segment values.
+- Static width discipline: matcher widths must be justified by arithmetic proofs from the branch's type information and any bounds implied by earlier captured `BitVec` widths.
 - Explicit byte alignment for little-endian widths: use `bytes(expr)` when a statically known byte count should be interpreted as a bit width.
 
 ## Public Modules
@@ -91,18 +91,24 @@ The current `bitmatch` subset supports:
 - comparison terms such as `(marker) : 8` or `(-2) : 16 / signed-little`
 - capture segments such as `kind : 8`, `word : 16 / little`, or `payload : (8 * payloadBytes)` when `payloadBytes` is already statically available
 - ignored segments such as `_ : 16`, `_ : (headerBits)`, or `_ : bytes(4) / little`
-- width expressions using ordinary Lean `Nat` terms that are already statically available in the surrounding context
-- byte-aligned little-endian and signed-little forms through `bytes(expr)` when `expr` is statically known
+- width expressions using ordinary Lean `Nat` terms from the surrounding context or earlier captures when the resulting split proofs can be discharged statically
+- byte-aligned little-endian and signed-little forms through `bytes(expr)` under the same proof-driven discipline
 - full-input matching only: leftover bits cause the branch to fail and fall through
 
 If the explicit fallback is omitted, `bitmatch` currently accepts only a single
 structurally total capture/ignore rewrite branch. That form is meant for direct
 bit-preserving rewrites where the pattern fully determines the input shape and
-the result type matches the scrutinee type.
+the result type matches the scrutinee type. Writing an explicit final fallback
+for that same single total branch is rejected as unnecessary.
 
-Widths are checked statically. Patterns such as `<<len : 8, payload : (8 * len.toNat)>>`
-or `<<len : 8, payload : bytes(len.toNat) / little>>` are intentionally rejected;
-see `Test/MatchErrors.lean` for the guarded compile-failure cases.
+Widths are checked statically. Dependent widths are accepted only when the
+generated `splitExact` and `exactWidth` obligations can be proved from the
+available arithmetic facts. For example,
+`<<len : 2, payload : (len.toNat), _ : (30 - len.toNat)>>` is accepted on a
+32-bit input because `len.toNat < 4` makes each split proof go through, while
+`<<len : 8, payload : (8 * len.toNat)>>` on a 32-bit input is rejected because
+the final full-input width equality cannot be proved. See `Test/Match.lean`
+and `Test/MatchErrors.lean` for guarded success and failure cases.
 
 Current capture semantics:
 
@@ -174,7 +180,7 @@ def signedPayloadMatches : Nat :=
 - The construction DSL is still a curated subset, not a general segment grammar.
 - The matcher is separate from Lean's native `match`; there is no pattern integration with ordinary inductive matches.
 - Captures currently elaborate to `BitVec` values, not directly to `Nat` or `Int`.
-- Pattern widths cannot depend on earlier captured values such as `len.toNat`; those cases are rejected at compile time.
+- Dependent widths still fail when the required full-input or remainder-width arithmetic cannot be proved from the captured segment bounds.
 - Little-endian widths still require the explicit `bytes(expr)` form.
 - Floats, UTF encodings, and broader segment typing are not implemented.
 - Pretty-printing and delaboration support are still minimal.

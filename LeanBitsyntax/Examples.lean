@@ -150,8 +150,10 @@ def staticallySizedSignedLittleTermMatched : Nat :=
 
 /-
 Captured-dependent widths such as `(8 * len.toNat)` or `bytes(len.toNat)` are
-intentionally rejected by the matcher. See `Test/MatchErrors.lean` for guarded
-compile-error coverage of those forms.
+accepted when the generated arithmetic obligations can be proved from the
+surrounding facts. This aggregate examples file sticks to fixed-width cases;
+see `Test/Match.lean` for accepted dependent-width examples and
+`Test/MatchErrors.lean` for guarded rejected cases.
 -/
 
 example : demoPacket = (0x0111002A#32) := by

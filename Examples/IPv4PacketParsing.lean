@@ -3,12 +3,13 @@ import LeanBitsyntax.Match
 namespace LeanBitsyntax
 
 /--
-Protocol-oriented IPv4 example.
+Protocol-oriented IPv4 example for the fixed 20-byte header subset.
 
 The example separates header parsing from full-packet parsing and exposes a few
-derived protocol properties such as header length, whether options are present,
-whether the packet is fragmented, and whether the payload should be treated as
-UDP.
+derived protocol properties such as header length, fragmentation, and whether
+the payload should be treated as UDP. The data model keeps explicit options
+fields, but the current parser accepts only `ihlWords = 5`, so the parsed
+packets in this file always have `optionsBits = 0` and `options = <<>>`.
 -/
 structure IPv4Header where
   ihlWords : Nat

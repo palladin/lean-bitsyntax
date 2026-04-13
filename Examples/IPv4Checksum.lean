@@ -38,12 +38,10 @@ def ipv4ChecksumAcc {byteCount : Nat} (bits : BitVec (8 * byteCount)) (csum : Na
     bitmatch bits with
     | <<word : 16, rest : (8 * (byteCount - 2))>> =>
         ipv4ChecksumAcc (byteCount := byteCount - 2) rest (doTrunc (csum + word.toNat))
-    | _ => 0
   else if _h1 : 1 ≤ byteCount then
     bitmatch bits with
     | <<last : 8>> =>
         ipv4ChecksumAcc (byteCount := 0) <<>> (doTrunc (csum + 256 * last.toNat))
-    | _ => 0
   else
     finishChecksum csum
 termination_by byteCount
@@ -60,17 +58,14 @@ def ipv4ChecksumAccUnrolled {byteCount : Nat} (bits : BitVec (8 * byteCount)) (c
         ipv4ChecksumAccUnrolled (byteCount := byteCount - 16) rest
           (doTrunc (csum + w1.toNat + w2.toNat + w3.toNat + w4.toNat +
             w5.toNat + w6.toNat + w7.toNat + w8.toNat))
-    | _ => 0
   else if _h2 : 2 ≤ byteCount then
     bitmatch bits with
     | <<word : 16, rest : (8 * (byteCount - 2))>> =>
         ipv4ChecksumAccUnrolled (byteCount := byteCount - 2) rest (doTrunc (csum + word.toNat))
-    | _ => 0
   else if _h1 : 1 ≤ byteCount then
     bitmatch bits with
     | <<last : 8>> =>
         ipv4ChecksumAccUnrolled (byteCount := 0) <<>> (doTrunc (csum + 256 * last.toNat))
-    | _ => 0
   else
     finishChecksum csum
 termination_by byteCount

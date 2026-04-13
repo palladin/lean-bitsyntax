@@ -93,24 +93,20 @@ def signedLittlePatternMatched : Nat :=
 def capturedLittleWord : Nat :=
   bitmatch littleEndianWord with
   | <<word : 16 / little>> => word.toNat
-  | _ => 0
 
 def capturedSignedLittleWord : Int :=
   bitmatch signedLittleWord with
   | <<word : 16 / signed-little>> => word.toInt
-  | _ => 0
 
 def staticallySizedPayload : Nat :=
   bitmatch lengthPrefixedPacket with
   | <<len : 8, payload : 24>> =>
       if len.toNat = 3 then payload.toNat else 0
-  | _ => 0
 
 def staticallySizedIgnored : Nat :=
   bitmatch lengthPrefixedPacket with
   | <<len : 8, _ : 24>> =>
       if len.toNat = 3 then len.toNat else 0
-  | _ => 0
 
 def staticallySizedLiteralMatched : Nat :=
   bitmatch lengthPrefixedPacket with
@@ -140,13 +136,11 @@ def staticallySizedLittleCapture : Nat :=
   bitmatch littleLengthPrefixedPacket with
   | <<len : 8, payload : bytes(3) / little>> =>
       if len.toNat = 3 then payload.toNat else 0
-  | _ => 0
 
 def staticallySizedLittleIgnore : Nat :=
   bitmatch littleLengthPrefixedPacket with
   | <<len : 8, _ : bytes(3) / little>> =>
       if len.toNat = 3 then len.toNat else 0
-  | _ => 0
 
 def staticallySizedSignedLittleTermMatched : Nat :=
   bitmatch signedLittleLengthPrefixedPacket with

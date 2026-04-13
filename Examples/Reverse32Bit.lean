@@ -18,7 +18,7 @@ def reverse_32bit : {chunks : Nat} → BitVec (32 * chunks) → BitVec (32 * chu
   | chunks + 1, bits =>
       bitmatch bits with
       | <<x : 32, rest : (32 * chunks)>> => <<(reverse_32bit rest), x : 32>>
--- #print reverse_32bit
+
 def example51Input : BitVec 96 :=
   <<0x11111111:32, 0x22222222:32, 0x33333333:32>>
 

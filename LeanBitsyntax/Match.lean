@@ -457,6 +457,16 @@ private structure UnreachableCase where
   source : Syntax
   kind : UnreachableCaseKind
 
+private def throwUnreachableCaseError {α} (unreachableCase : UnreachableCase) : TermElabM α :=
+  match unreachableCase.kind with
+  | .branch =>
+      throwErrorAt unreachableCase.source "this branch is unreachable; a previous branch is already total"
+  | .fallback =>
+      throwErrorAt unreachableCase.source "explicit fallback is unnecessary; a previous branch is already total"
+
+private def throwOmittedFallbackError {α} (arms : TSyntax `bitsMatchArms) : TermElabM α :=
+  throwErrorAt arms "omitted fallback is currently only supported for a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
+
 private def firstRestCase (rest : TSyntax `bitsMatchRest) : MacroM UnreachableCase :=
   match rest with
   | `(bitsMatchRest| | _ => $_fallback) =>
@@ -543,11 +553,7 @@ elab_rules : term
       let scrutineeTerm : TSyntax `term := ⟨scrutineeId.raw⟩
       if armsHasExplicitFallback arms then
         if let some unreachableCase ← findUnreachableArmsCase? scrutinee arms then
-          match unreachableCase.kind with
-          | .branch =>
-              throwErrorAt unreachableCase.source "this branch is unreachable; a previous branch is already total"
-          | .fallback =>
-              throwErrorAt unreachableCase.source "explicit fallback is unnecessary; a previous branch is already total"
+          throwUnreachableCaseError unreachableCase
         let explicitExpanded ← Lean.Elab.liftMacroM do
           let expanded ← expandMatchArms scrutineeTerm scrutineeTerm arms
           `(let $scrutineeId := $scrutinee;
@@ -562,9 +568,11 @@ elab_rules : term
                 `(let $scrutineeId := $scrutinee;
                   $expanded)
               catch _ =>
-                Macro.throwErrorAt arms "omitted fallback currently requires a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
+                Macro.throwErrorAt arms "omitted fallback is currently only supported for a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
             elabTerm expanded none
-        | none =>
-            throwErrorAt arms "omitted fallback currently requires a single structurally total capture/ignore branch; add an explicit `| _ => ...` fallback"
+        | none => do
+            if let some unreachableCase ← findUnreachableArmsCase? scrutinee arms then
+              throwUnreachableCaseError unreachableCase
+            throwOmittedFallbackError arms
 
 end LeanBitsyntax

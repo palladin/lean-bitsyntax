@@ -98,8 +98,9 @@ The current `bitmatch` subset supports:
 If the explicit fallback is omitted, `bitmatch` currently accepts only a single
 structurally total capture/ignore rewrite branch. That form is meant for direct
 bit-preserving rewrites where the pattern fully determines the input shape and
-the result type matches the scrutinee type. Writing an explicit final fallback
-for that same single total branch is rejected as unnecessary.
+the result type matches the scrutinee type. More generally, once a branch is
+already total, any later branch is rejected as unreachable, and an explicit
+final fallback after such a branch is rejected as unnecessary.
 
 Widths are checked statically. Dependent widths are accepted only when the
 generated `splitExact` and `exactWidth` obligations can be proved from the

@@ -449,15 +449,75 @@ private def singleArm? : TSyntax `bitsMatchArms → Option (TSyntax `bitsPattern
   | _ =>
       none
 
-private def singleArmWithExplicitFallback? : TSyntax `bitsMatchArms → Option (TSyntax `bitsPattern × TSyntax `bitsMatchRest)
-  | `(bitsMatchArms| | $pattern:bitsPattern => $_body $rest:bitsMatchRest) =>
-    match rest with
-    | `(bitsMatchRest| | _ => $_fallback) =>
-      some (pattern, rest)
-    | _ =>
-      none
+private inductive UnreachableCaseKind where
+  | branch
+  | fallback
+
+private structure UnreachableCase where
+  source : Syntax
+  kind : UnreachableCaseKind
+
+private def firstRestCase (rest : TSyntax `bitsMatchRest) : MacroM UnreachableCase :=
+  match rest with
+  | `(bitsMatchRest| | _ => $_fallback) =>
+      pure { source := rest.raw, kind := .fallback }
+  | `(bitsMatchRest| | $pattern:bitsPattern => $_body) =>
+      pure { source := pattern.raw, kind := .branch }
+  | `(bitsMatchRest| | $pattern:bitsPattern => $_body $_rest:bitsMatchRest) =>
+      pure { source := pattern.raw, kind := .branch }
   | _ =>
-    none
+      Macro.throwUnsupported
+
+private def branchIsTotal? (scrutinee : TSyntax `term)
+    (pattern : TSyntax `bitsPattern) (body : TSyntax `term) : TermElabM Bool := do
+  let totalTerm ← Lean.Elab.liftMacroM
+    `(bitmatchTerm| bitmatch $scrutinee with | $pattern => $body)
+  let savedState ← saveState
+  let isTotal ←
+    try
+      withoutErrToSorry do
+        Core.resetMessageLog
+        let expr ← elabTerm totalTerm none
+        synthesizeSyntheticMVarsNoPostponing
+        if (← MonadLog.hasErrors) then
+          throwError "probe errors"
+        if expr.hasSyntheticSorry then
+          throwError "synthetic sorry"
+        if !(← Lean.Meta.getMVars expr).isEmpty then
+          throwError "unsolved goals"
+        pure true
+    catch _ =>
+      pure false
+  restoreState savedState
+  pure isTotal
+
+private partial def findUnreachableRestCase? (scrutinee : TSyntax `term)
+    : TSyntax `bitsMatchRest → TermElabM (Option UnreachableCase)
+  | `(bitsMatchRest| | _ => $_fallback) =>
+      pure none
+  | `(bitsMatchRest| | $pattern:bitsPattern => $body) => do
+      let _ ← branchIsTotal? scrutinee pattern body
+      pure none
+  | `(bitsMatchRest| | $pattern:bitsPattern => $body $rest:bitsMatchRest) => do
+      if ← branchIsTotal? scrutinee pattern body then
+        some <$> Lean.Elab.liftMacroM (firstRestCase rest)
+      else
+        findUnreachableRestCase? scrutinee rest
+  | _ =>
+      Lean.Elab.throwUnsupportedSyntax
+
+private def findUnreachableArmsCase? (scrutinee : TSyntax `term)
+    : TSyntax `bitsMatchArms → TermElabM (Option UnreachableCase)
+  | `(bitsMatchArms| | $pattern:bitsPattern => $body) => do
+      let _ ← branchIsTotal? scrutinee pattern body
+      pure none
+  | `(bitsMatchArms| | $pattern:bitsPattern => $body $rest:bitsMatchRest) => do
+      if ← branchIsTotal? scrutinee pattern body then
+        some <$> Lean.Elab.liftMacroM (firstRestCase rest)
+      else
+        findUnreachableRestCase? scrutinee rest
+  | _ =>
+      Lean.Elab.throwUnsupportedSyntax
 
 private partial def expandMatchRest (bits defaultFallback : TSyntax `term) : TSyntax `bitsMatchRest → MacroM (TSyntax `term)
   | `(bitsMatchRest| | _ => $fallback) =>
@@ -482,23 +542,17 @@ elab_rules : term
       let scrutineeId := mkIdent `__scrutinee
       let scrutineeTerm : TSyntax `term := ⟨scrutineeId.raw⟩
       if armsHasExplicitFallback arms then
+        if let some unreachableCase ← findUnreachableArmsCase? scrutinee arms then
+          match unreachableCase.kind with
+          | .branch =>
+              throwErrorAt unreachableCase.source "this branch is unreachable; a previous branch is already total"
+          | .fallback =>
+              throwErrorAt unreachableCase.source "explicit fallback is unnecessary; a previous branch is already total"
         let explicitExpanded ← Lean.Elab.liftMacroM do
           let expanded ← expandMatchArms scrutineeTerm scrutineeTerm arms
           `(let $scrutineeId := $scrutinee;
             $expanded)
-        if let some (pattern, fallbackRest) := singleArmWithExplicitFallback? arms then
-          let isTotalBranch ← Lean.Elab.liftMacroM do
-            try
-              discard <| totalPatSegs pattern
-              pure true
-            catch _ =>
-              pure false
-          let explicitExpr ← elabTerm explicitExpanded none
-          if isTotalBranch then
-            throwErrorAt fallbackRest "explicit fallback is unnecessary; this single branch is already total, so omit the final `| _ => ...` branch"
-          pure explicitExpr
-        else
-          elabTerm explicitExpanded none
+        elabTerm explicitExpanded none
       else
         match singleArm? arms with
         | some (pattern, body) =>

@@ -195,4 +195,14 @@ def unnecessaryExplicitFallback : Nat :=
   | <<len : 2, payload : (len.toNat), _ : (30 - len.toNat)>> => payload.toNat
   | _ => 0
 
+/--
+error: this branch is unreachable
+-/
+#guard_msgs (error, substring := true) in
+def unreachableLaterBranchAfterTotal : Nat :=
+  bitmatch boundedDependentWidthPacket with
+  | <<len : 2, payload : (len.toNat), _ : (30 - len.toNat)>> => payload.toNat
+  | <<_ : 32>> => 0
+  | _ => 1
+
 end LeanBitsyntax.Test
